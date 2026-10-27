@@ -1,0 +1,20 @@
+# Dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+.vite/
+coverage/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and local tooling state
+*.log
+logs/
+.DS_Store
+Thumbs.db
+
+# Workspace-specific assistant configuration
+.agents/
