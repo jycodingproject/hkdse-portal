@@ -87,18 +87,28 @@ Keep authentication PII in the authentication provider rather than copying email
 
 ### 3.2 Exam content and sittings
 
-**`papers`**, **`paper_versions`**, **`questions`**, **`choices`**, **`answer_keys`**, **`explanations`**, **`course_taxonomies`**, **`topics`**, **`taxonomy_crosswalks`**
+**`papers`**, **`paper_versions`**, **`paper_imports`**, **`questions`**, **`choices`**, **`answer_keys`**, **`explanations`**, **`course_taxonomies`**, **`topics`**, **`taxonomy_crosswalks`**
 
 - A published paper version is immutable. Edits create a new version.
 - Store bilingual question and choice content with explicit language fields.
 - Keep answer keys in a private schema or otherwise inaccessible to `anon` and ordinary authenticated clients.
 - Store explanation language and topic mapping separately from the answer key.
 - `course_taxonomies` identify the applicable HKDSE Mathematics syllabus/framework version. `topics` contain stable internal IDs, exact Traditional Chinese and English official labels, and parent-child relationships for main topics and subtopics.
-- Question-generation JSON includes bilingual exact-label fields for one main topic and one subtopic, constrained to that taxonomy version. Preserve the generated JSON, validate labels against the versioned allowlist, and normalize valid labels to internal topic IDs. Do not have the model invent labels or taxonomy entries.
-- Topic assignment is automatic at generation; no routine administrator review is required. If a label cannot be matched to the applicable taxonomy, mark the question permanently unclassified for topic analytics. This does not affect scoring or answer review.
+- Questions are authored outside the portal and imported as versioned strict JSON. The source schema contains paper content and course/taxonomy version only; sitting schedule, prices, and registration settings are configured separately in the portal.
+- Each question's source JSON contains bilingual prompt, choices, correct answer, explanation, main-topic name, and subtopic name. Topic labels must be exact bilingual values from the applicable taxonomy version; an explicit `unclassified` sentinel is allowed when the generator cannot assign a topic. Preserve the original source JSON, schema version, and converter version.
+- The portal validates the entire file before creating a draft. Structural or required-field errors reject the complete import; no partial paper is created. Valid input is transformed into the portal's canonical paper format.
+- Topic assignment is automatic in the generated JSON; no routine administrator review is required. Valid labels normalize to internal topic IDs. An explicit `unclassified` value permanently excludes that question from topic analytics, but not scoring. A non-empty label outside the applicable allowlist is an import validation error.
 - Save subtopic labels for question-bank management/filtering, but first-release student analytics use main topics only.
+- An administrator checks transformation fidelity by comparing the first, middle, and last questions' source JSON with the converted portal representation. This is not a content/answer review; question quality checks and corrections happen outside the portal. The portal does not provide in-app content editing.
+- If the sample check finds a conversion mismatch, block publication of the complete import. Fix the source outside the portal or fix the converter, then upload again. Every upload creates a new draft/import record, including an identical file; retain the source and conversion record for each import.
 - Store AI cross-version topic mappings as versioned tri-state decisions (`equivalent`, `not_equivalent`, `uncertain`). Only `equivalent` mappings may combine historical topic data; the others remain separate. Preserve the mapping version used by each published aggregate.
 - Paper assets, if any, use private Storage with short-lived signed URLs.
+
+**`paper_imports`**
+
+- `id`, administrator, source file reference, content hash, source schema version, converter version, status, validation report, created draft/paper version, and timestamps.
+- The content hash is provenance metadata, not a deduplication key. Every upload creates a distinct import and draft, even when the file is identical.
+- A failed schema validation or transformation sample check cannot create a publishable partial paper.
 
 **`exam_sittings`**
 
@@ -351,6 +361,7 @@ Production backups and a tested restore procedure are required. The recovery obj
 
 - RLS ownership and cross-account denial for every student-owned table.
 - Admin MFA/role checks and audit creation.
+- Versioned source JSON schema validation, bilingual conversion, all-or-nothing imports, fixed first/middle/last conversion preview, failure blocking, and distinct drafts for duplicate identical uploads.
 - Payment webhook signature verification, duplicate delivery, failure, and out-of-order event handling.
 - Monthly term purchase, early renewal, expiry, 7-day stacking, and expired-at-approval behavior.
 - Registration eligibility at cutoff/term boundaries, source snapshot, single-booking irreversible cancellation, monthly cancellation/rebooking, voucher redemption, and duplicate booking.
@@ -380,16 +391,11 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 
 ## 8. Open items and implementation gates
 
-### Product/scoring rules
-
-1. Select the AI model/provider used for question generation and its constrained topic-label output; provider choice must preserve the approved taxonomy allowlist and unclassified behavior.
-
 ### Provider and legal gates
 
 1. Select hosted payment provider and verify current Hong Kong fees, supported payment methods, webhook behavior, settlement, and refund capabilities.
 2. Select transactional email provider and configure OTP deliverability, domain authentication, and notification monitoring.
-3. Select AI question-generation provider and review its data-processing and retention terms.
-4. Obtain Hong Kong privacy/consumer-law review for minors, mandatory statistical use notice, indefinite pseudonymous answer retention, no-refund terms, voucher terms, and Singapore-region data processing.
+3. Obtain Hong Kong privacy/consumer-law review for minors, mandatory statistical use notice, indefinite pseudonymous answer retention, no-refund terms, voucher terms, and Singapore-region data processing.
 
 ### Reliability and operations gates
 
@@ -406,4 +412,6 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 6. **Operations:** incidents, admin audit, platform-cancellation preview/apply, notifications, account deletion.
 7. **Hardening:** load tests, failure recovery, backups/restore, privacy review, production deployment rehearsal.
 
-Do not connect a live payment provider, send real notifications, or deploy production migrations until the provider and legal gates are closed and the remaining topic-taxonomy decision is made.
+Do not connect a live payment provider, send real notifications, or deploy production migrations until the provider and legal gates are closed.
+
+AI question generation and topic labeling run outside the portal. Choosing the external authoring tool/provider is a separate content workflow decision, not a portal backend integration gate.
