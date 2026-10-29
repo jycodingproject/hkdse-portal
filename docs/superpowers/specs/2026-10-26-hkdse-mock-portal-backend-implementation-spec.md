@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-26  
 **Status:** Draft for implementation planning  
-**Decision baseline:** Product and system rules confirmed in conversation on 2026-10-26  
+**Decision baseline:** Product and system rules confirmed in conversations on 2026-10-26 and 2026-10-29
 **Scope:** First production backend for the HKDSE mock-exam portal
 
 This specification translates the confirmed product decisions into a provider-neutral backend design. It does not authorize production deployment or select payment, email, or legal/compliance providers. Items labelled **Open before implementation** must be decided before the relevant feature is coded.
@@ -16,7 +16,7 @@ The existing [frontend prototype design](./2026-10-24-hkdse-mock-portal-frontend
 - Trial prices: HK$29 per sitting and HK$99 per 30-day subscription. Both are hypotheses to validate, not final price commitments.
 - Monthly subscriptions are manually renewed and never auto-renew. Early renewal appends 30 days to the current expiry; a purchase after expiry starts a new 30-day term at payment time.
 - Monthly subscribers manually select and confirm each sitting. A sitting is eligible if registration is open and its scheduled start falls within the effective subscription period. Confirmed bookings remain valid after subscription expiry.
-- A monthly booking may be cancelled before the sitting starts and replaced by another eligible booking. A single-purchase cancellation receives no refund and cannot be transferred.
+- A monthly booking may be cancelled before the sitting starts and replaced by another eligible booking. A single-purchase booking may also be cancelled before the sitting starts, but cancellation is irreversible, non-refundable, and non-transferable; joining another sitting requires a new purchase. Neither type can be cancelled at or after the sitting start.
 - All paid candidates can view their score and correct options after common result release. A monthly-covered sitting additionally grants explanations, topic analysis, and cross-week progress; those detailed results remain accessible after expiry.
 - A sitting has one formal attempt. The server closes attempts at the common deadline using the latest server-confirmed answers. Offline answering is unsupported.
 - 500 simultaneous active candidates is the initial load-test target; it is not a capacity guarantee until tested.
@@ -243,7 +243,7 @@ Keep authentication PII in the authentication provider rather than copying email
 - Single order/voucher is valid for that sitting, or the monthly entitlement is active and the sitting starts within its effective period.
 - No existing active registration for the same sitting.
 
-Monthly booking is manually confirmed; there is no automatic enrollment. A monthly booking may be cancelled before the sitting starts without refund or credit accounting, then another eligible sitting may be selected. A single-purchase cancellation is non-refundable and non-transferable. At or after the start time, cancellation is unavailable.
+Monthly booking is manually confirmed; there is no automatic enrollment. A monthly booking may be cancelled before the sitting starts without refund or credit accounting, then another eligible sitting may be selected. A single-purchase registration may be cancelled before the sitting starts, but the cancellation is irreversible: there is no refund, transfer, or reactivation, and joining any sitting requires a new purchase. At or after the start time, cancellation is unavailable.
 
 ### 5.4 Attempt start, save, and deadline finalization
 
@@ -274,13 +274,11 @@ Use server time as the source of truth. Define a single transaction boundary for
   - U: percentile < 10
 - If every valid submission has the same score, mid-rank yields the 50th percentile and all candidates receive grade 3, per the confirmed policy.
 - Label this as a platform **same-sitting relative mock grade**, not an HKEAA grade or HKDSE prediction. The HKEAA reporting system is standards-referenced, not a fixed cohort quota.
-- Publish results only after the common sitting cutoff and any required paper-quality review.
+- Publish results automatically after the common sitting cutoff and successful completion of scoring/statistics jobs. There is no routine administrator approval gate before publication.
 
 ### 5.6 Invalid question and rescore
 
-An authorized administrator records the affected sitting, question, reason, evidence, and decision. A rescore job must be idempotent, versioned, auditable, and apply the same rule to every affected attempt. Do not overwrite the previous score snapshot.
-
-**Open before scoring implementation:** decide whether a voided question is removed from the maximum score and scores normalized, or whether all candidates receive the question's points. The business decision to void and rescore is confirmed; this exact scoring treatment is not.
+An authorized administrator records the affected sitting, question, reason, evidence, and decision. Before execution, the system previews the number of affected candidates and old-versus-new scores. After the administrator confirms, an idempotent, versioned, auditable job removes the voided question from the score and maximum possible score, then recalculates normalized percentages for every affected attempt. Preserve the prior result snapshot and the correction reason; notify affected candidates after the corrected results are committed. The single-owner administrator model does not require a second administrator.
 
 ### 5.7 Individual incident compensation
 
@@ -327,7 +325,7 @@ Monitor at minimum:
 - Notification backlog and repeated delivery failures.
 - Admin actions, RLS denials, and unusual OTP/booking rates.
 
-Production backups and a tested restore procedure are required. Confirm the selected Supabase plan's backup/recovery capabilities before launch.
+Production backups and a tested restore procedure are required. The recovery objectives are RPO no greater than 5 minutes and RTO no greater than 4 hours; validate them with a restore exercise before launch. Confirm the selected Supabase plan's backup/recovery capabilities and cost before implementation.
 
 ## 7. Verification plan
 
@@ -337,7 +335,7 @@ Production backups and a tested restore procedure are required. Confirm the sele
 - Admin MFA/role checks and audit creation.
 - Payment webhook signature verification, duplicate delivery, failure, and out-of-order event handling.
 - Monthly term purchase, early renewal, expiry, 7-day stacking, and expired-at-approval behavior.
-- Registration eligibility at cutoff/term boundaries, source snapshot, cancellation, voucher redemption, and duplicate booking.
+- Registration eligibility at cutoff/term boundaries, source snapshot, single-booking irreversible cancellation, monthly cancellation/rebooking, voucher redemption, and duplicate booking.
 - Answer-save ownership, deadline boundary races, duplicate writes, and offline/failure UI states.
 - Manual submit, deadline submit, full-blank attempt, and never-started registration behavior.
 - Percentile, tie, grade-band, all-scores-equal, and sample-threshold calculations.
@@ -350,7 +348,7 @@ Production backups and a tested restore procedure are required. Confirm the sele
 
 Before claiming support for 500 concurrent candidates, run a production-like test with synchronized answer saves and a synchronized exam deadline. Measure save latency and failure rate, database resource pressure, finalization backlog, and recovery after transient failures.
 
-**Proposed acceptance gate, pending approval:** 500 concurrent active attempts for a representative session; no acknowledged answer lost; all started attempts finalized; and measured save latency/error thresholds documented before the test. Do not treat the target headcount alone as proof of readiness.
+**Acceptance gate:** 500 concurrent active attempts for a representative session; answer-save acknowledgement P95 no greater than 1 second; answer-save error rate below 0.1%; no acknowledged answer lost; and every started attempt finalized within 2 minutes after the common deadline. Do not treat the target headcount alone as proof of readiness or as a capacity guarantee.
 
 ### 7.3 Deployment controls
 
@@ -365,9 +363,7 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 
 ### Product/scoring rules
 
-1. **Voided-question scoring treatment:** remove-and-normalize versus award full credit to everyone.
-2. **Cross-week trend metric:** choose a comparable measure across paper versions, e.g. percentage correct, topic accuracy, or both.
-3. **Single-purchase cancellation implementation:** policy is no refund/no transfer; confirm whether a cancelled registration can be reactivated for the same sitting before its start, or whether it remains permanently cancelled.
+1. Define the topic taxonomy and mapping-review process used to calculate overall and topic-level accuracy trends across weeks.
 
 ### Provider and legal gates
 
@@ -377,9 +373,8 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 
 ### Reliability and operations gates
 
-1. Approve measurable load-test thresholds and recovery objectives; 500 simultaneous candidates is only the current target.
-2. Confirm backup retention and restore process against the selected service plan.
-3. Define the operational review required before result publication and the administrator's rescore approval flow.
+1. Confirm backup retention and restore process against the selected service plan, and demonstrate RPO <= 5 minutes and RTO <= 4 hours in a restore exercise.
+2. Verify automated result publication and the administrator's preview/confirmation process for corrected results.
 
 ## 9. Suggested delivery sequence
 
@@ -391,4 +386,4 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 6. **Operations:** incidents, admin audit, platform-cancellation preview/apply, notifications, account deletion.
 7. **Hardening:** load tests, failure recovery, backups/restore, privacy review, production deployment rehearsal.
 
-Do not connect a live payment provider, send real notifications, or deploy production migrations until the provider, legal, and unresolved scoring gates are closed.
+Do not connect a live payment provider, send real notifications, or deploy production migrations until the provider and legal gates are closed and the remaining topic-taxonomy decision is made.
