@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-26  
 **Status:** Draft for implementation planning  
-**Decision baseline:** Product and system rules confirmed in conversations on 2026-10-26 and 2026-10-29
+**Decision baseline:** Product and system rules confirmed in conversations on 2026-10-26, 2026-10-27, and 2026-10-29
 **Scope:** First production backend for the HKDSE mock-exam portal
 
 This specification translates the confirmed product decisions into a provider-neutral backend design. It does not authorize production deployment or select payment, email, or legal/compliance providers. Items labelled **Open before implementation** must be decided before the relevant feature is coded.
@@ -87,12 +87,17 @@ Keep authentication PII in the authentication provider rather than copying email
 
 ### 3.2 Exam content and sittings
 
-**`papers`**, **`paper_versions`**, **`questions`**, **`choices`**, **`answer_keys`**, **`explanations`**, **`topics`**, **`question_topics`**
+**`papers`**, **`paper_versions`**, **`questions`**, **`choices`**, **`answer_keys`**, **`explanations`**, **`course_taxonomies`**, **`topics`**, **`taxonomy_crosswalks`**
 
 - A published paper version is immutable. Edits create a new version.
 - Store bilingual question and choice content with explicit language fields.
 - Keep answer keys in a private schema or otherwise inaccessible to `anon` and ordinary authenticated clients.
 - Store explanation language and topic mapping separately from the answer key.
+- `course_taxonomies` identify the applicable HKDSE Mathematics syllabus/framework version. `topics` contain stable internal IDs, exact Traditional Chinese and English official labels, and parent-child relationships for main topics and subtopics.
+- Question-generation JSON includes bilingual exact-label fields for one main topic and one subtopic, constrained to that taxonomy version. Preserve the generated JSON, validate labels against the versioned allowlist, and normalize valid labels to internal topic IDs. Do not have the model invent labels or taxonomy entries.
+- Topic assignment is automatic at generation; no routine administrator review is required. If a label cannot be matched to the applicable taxonomy, mark the question permanently unclassified for topic analytics. This does not affect scoring or answer review.
+- Save subtopic labels for question-bank management/filtering, but first-release student analytics use main topics only.
+- Store AI cross-version topic mappings as versioned tri-state decisions (`equivalent`, `not_equivalent`, `uncertain`). Only `equivalent` mappings may combine historical topic data; the others remain separate. Preserve the mapping version used by each published aggregate.
 - Paper assets, if any, use private Storage with short-lived signed URLs.
 
 **`exam_sittings`**
@@ -157,6 +162,15 @@ Keep authentication PII in the authentication provider rather than copying email
 - Store finalized score snapshots and published aggregate outputs with the paper version and scoring version used.
 - Store counts and thresholds used to decide whether each aggregate is visible.
 - Preserve prior result versions when a voided question causes a uniform rescore; record the correction reason and audit history.
+
+**`student_topic_progress`** (or equivalent derived view/materialization)
+
+- Include only valid submissions from registrations whose access source was a monthly subscription.
+- Retain detailed analysis for monthly-covered sittings after subscription expiry, consistent with the entitlement snapshot.
+- Store per-sitting main-topic numerator/denominator and cumulative item-weighted numerator/denominator. Do not count permanently unclassified questions in topic analytics.
+- Draw a per-topic weekly/sitting trend only when at least two sittings contain data for that topic. Always expose correct count and question count alongside the rate.
+- Cumulative accuracy is `sum(correct tagged answers) / sum(tagged questions)` across all eligible monthly-covered valid submissions. It is item-weighted, not an average of sitting percentages.
+- Rebuilds caused by a new crosswalk must create a new aggregate version; never silently rewrite an already published snapshot.
 
 ### 3.5 Incidents, vouchers, cancellation batches, and notices
 
@@ -275,6 +289,10 @@ Use server time as the source of truth. Define a single transaction boundary for
 - If every valid submission has the same score, mid-rank yields the 50th percentile and all candidates receive grade 3, per the confirmed policy.
 - Label this as a platform **same-sitting relative mock grade**, not an HKEAA grade or HKDSE prediction. The HKEAA reporting system is standards-referenced, not a fixed cohort quota.
 - Publish results automatically after the common sitting cutoff and successful completion of scoring/statistics jobs. There is no routine administrator approval gate before publication.
+- For monthly-covered valid submissions, calculate personal main-topic accuracy by sitting and cumulatively. Show correct count/total tagged questions; show a trend line only after at least two sittings contain data for that topic. The cumulative rate is question-weighted across all monthly-covered valid submissions.
+- Do not show personal topic analytics to single-purchase candidates. Subtopic labels remain available for question-bank management but are not used in student analytics in the first release.
+- Permanently unclassified questions remain part of exam scoring but are excluded from topic-specific numerator and denominator.
+- When a cross-version topic crosswalk changes, preserve published aggregate versions and use the new mapping only in a separately versioned recalculation.
 
 ### 5.6 Invalid question and rescore
 
@@ -339,6 +357,7 @@ Production backups and a tested restore procedure are required. The recovery obj
 - Answer-save ownership, deadline boundary races, duplicate writes, and offline/failure UI states.
 - Manual submit, deadline submit, full-blank attempt, and never-started registration behavior.
 - Percentile, tie, grade-band, all-scores-equal, and sample-threshold calculations.
+- Taxonomy-version label validation, bilingual JSON normalization, permanent-unclassified handling, AI crosswalk tri-state behavior, entitlement-filtered topic progress, per-sitting minimums, and item-weighted cumulative accuracy.
 - Result visibility by purchase source and after subscription expiry.
 - Incident approval, batch cancellation preview/confirmation, duplicate protection, and notification failures.
 - Account deletion during an active attempt, future booking cancellation, PII unlinking, and retained tombstone/result data.
@@ -363,13 +382,14 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 
 ### Product/scoring rules
 
-1. Define the topic taxonomy and mapping-review process used to calculate overall and topic-level accuracy trends across weeks.
+1. Select the AI model/provider used for question generation and its constrained topic-label output; provider choice must preserve the approved taxonomy allowlist and unclassified behavior.
 
 ### Provider and legal gates
 
 1. Select hosted payment provider and verify current Hong Kong fees, supported payment methods, webhook behavior, settlement, and refund capabilities.
 2. Select transactional email provider and configure OTP deliverability, domain authentication, and notification monitoring.
-3. Obtain Hong Kong privacy/consumer-law review for minors, mandatory statistical use notice, indefinite pseudonymous answer retention, no-refund terms, voucher terms, and Singapore-region data processing.
+3. Select AI question-generation provider and review its data-processing and retention terms.
+4. Obtain Hong Kong privacy/consumer-law review for minors, mandatory statistical use notice, indefinite pseudonymous answer retention, no-refund terms, voucher terms, and Singapore-region data processing.
 
 ### Reliability and operations gates
 
