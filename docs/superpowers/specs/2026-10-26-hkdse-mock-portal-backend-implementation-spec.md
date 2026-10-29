@@ -93,15 +93,15 @@ Keep authentication PII in the authentication provider rather than copying email
 - Store bilingual question and choice content with explicit language fields.
 - Keep answer keys in a private schema or otherwise inaccessible to `anon` and ordinary authenticated clients.
 - Store explanation language and topic mapping separately from the answer key.
-- `course_taxonomies` identify the applicable HKDSE Mathematics syllabus/framework version. `topics` contain stable internal IDs, exact Traditional Chinese and English official labels, and parent-child relationships for main topics and subtopics.
+- `course_taxonomies` identify imported, externally defined HKDSE Mathematics syllabus/framework versions. `topics` contain stable internal IDs, exact Traditional Chinese and English official labels, and parent-child relationships for main topics and subtopics.
 - Questions are authored outside the portal and imported as versioned strict JSON. The source schema contains paper content and course/taxonomy version only; sitting schedule, prices, and registration settings are configured separately in the portal.
 - Each question's source JSON contains bilingual prompt, choices, correct answer, explanation, main-topic name, and subtopic name. Topic labels must be exact bilingual values from the applicable taxonomy version; an explicit `unclassified` sentinel is allowed when the generator cannot assign a topic. Preserve the original source JSON, schema version, and converter version.
 - The portal validates the entire file before creating a draft. Structural or required-field errors reject the complete import; no partial paper is created. Valid input is transformed into the portal's canonical paper format.
-- Topic assignment is automatic in the generated JSON; no routine administrator review is required. Valid labels normalize to internal topic IDs. An explicit `unclassified` value permanently excludes that question from topic analytics, but not scoring. A non-empty label outside the applicable allowlist is an import validation error.
+- Topic assignment is completed outside the portal and supplied in the generated JSON; the portal does not call an AI service or semantically review labels. Valid labels normalize to internal topic IDs. An explicit `unclassified` value permanently excludes that question from topic analytics, but not scoring. A non-empty label outside the applicable allowlist is an import validation error.
 - Save subtopic labels for question-bank management/filtering, but first-release student analytics use main topics only.
 - An administrator checks transformation fidelity by comparing the first, middle, and last questions' source JSON with the converted portal representation. This is not a content/answer review; question quality checks and corrections happen outside the portal. The portal does not provide in-app content editing.
 - If the sample check finds a conversion mismatch, block publication of the complete import. Fix the source outside the portal or fix the converter, then upload again. Every upload creates a new draft/import record, including an identical file; retain the source and conversion record for each import.
-- Store AI cross-version topic mappings as versioned tri-state decisions (`equivalent`, `not_equivalent`, `uncertain`). Only `equivalent` mappings may combine historical topic data; the others remain separate. Preserve the mapping version used by each published aggregate.
+- Cross-version topic mappings are defined outside the portal and imported as versioned tri-state decisions (`equivalent`, `not_equivalent`, `uncertain`). The portal validates schema, taxonomy versions, and referenced topics but trusts the supplied semantic decision and does not call AI or modify it. Only `equivalent` mappings may combine historical topic data; the others remain separate. Preserve the mapping version used by each published aggregate.
 - Paper assets, if any, use private Storage with short-lived signed URLs.
 
 **`paper_imports`**
@@ -109,6 +109,12 @@ Keep authentication PII in the authentication provider rather than copying email
 - `id`, administrator, source file reference, content hash, source schema version, converter version, status, validation report, created draft/paper version, and timestamps.
 - The content hash is provenance metadata, not a deduplication key. Every upload creates a distinct import and draft, even when the file is identical.
 - A failed schema validation or transformation sample check cannot create a publishable partial paper.
+
+**`taxonomy_imports`**
+
+- Store each externally prepared taxonomy or crosswalk JSON with its schema version, source/destination course taxonomy versions, content hash, validation report, import status, and timestamp.
+- Validate the complete file and all referenced taxonomy versions/topic IDs before applying it. Any structural error or missing reference rejects the entire import; no partial taxonomy or crosswalk is applied.
+- Treat the semantic `equivalent` / `not_equivalent` / `uncertain` values as trusted external decisions. The portal does not reclassify them.
 
 **`exam_sittings`**
 
@@ -368,7 +374,7 @@ Production backups and a tested restore procedure are required. The recovery obj
 - Answer-save ownership, deadline boundary races, duplicate writes, and offline/failure UI states.
 - Manual submit, deadline submit, full-blank attempt, and never-started registration behavior.
 - Percentile, tie, grade-band, all-scores-equal, and sample-threshold calculations.
-- Taxonomy-version label validation, bilingual JSON normalization, permanent-unclassified handling, AI crosswalk tri-state behavior, entitlement-filtered topic progress, per-sitting minimums, and item-weighted cumulative accuracy.
+- Taxonomy-version label validation, bilingual JSON normalization, permanent-unclassified handling, external crosswalk tri-state import and reference validation, entitlement-filtered topic progress, per-sitting minimums, and item-weighted cumulative accuracy.
 - Result visibility by purchase source and after subscription expiry.
 - Incident approval, batch cancellation preview/confirmation, duplicate protection, and notification failures.
 - Account deletion during an active attempt, future booking cancellation, PII unlinking, and retained tombstone/result data.
