@@ -372,7 +372,7 @@ Monitor at minimum:
 - Notification-center retention expiry and email retry/undelivered state.
 - Admin actions, RLS denials, and unusual OTP/booking rates.
 
-Production database backups and a tested restore procedure are required. RPO no greater than 5 minutes and RTO no greater than 4 hours have been discussed as objectives, but the production backup/PITR plan, PITR retention window, RTO launch gate, and affordability have not been approved. The owner has deferred these decisions; do not treat either objective as an approved requirement or guaranteed until the plan is selected and restoration is rehearsed.
+Temporary production recovery baseline: use the Supabase Pro plan's default daily database backups, currently retained for 7 days. The owner accepts that recovery may roll data back by close to a day. PITR and its retention window are deferred for later review; RPO <= 5 minutes and RTO <= 4 hours are not approved requirements or guarantees. There is no backup/PITR decision gate before collecting real data. Revisit the tradeoff as operational usage and risk become clearer.
 
 Supabase database backups/PITR do not include Storage object bytes ([Supabase backup documentation](https://supabase.com/docs/guides/platform/backups)). The current file-recovery decision is to use Supabase Storage only, with no independent object backup; the owner accepts that deleted or corrupted original paper JSON/images may be unrecoverable. If this risk changes, select a managed external backup service before production.
 
@@ -420,9 +420,9 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 
 ### Reliability and operations gates
 
-1. Select the production database recovery approach and PITR retention window; decide whether to retain RPO <= 5 minutes and establish the RTO launch gate. Validate final service capabilities and cost.
-2. If a recovery objective is adopted, demonstrate it in a restore exercise; Supabase PITR restore temporarily makes the project unavailable and does not guarantee a specific RTO.
-3. Verify the manual monthly incident-evidence deletion procedure and automated result publication/correction workflows.
+1. Revisit whether to enable PITR and select a retention window based on actual production usage, risk, and cost; this is not a pre-launch gate.
+2. If RPO/RTO objectives are adopted later, demonstrate them in a restore exercise; Supabase PITR restore temporarily makes the project unavailable and does not guarantee a specific RTO.
+3. Verify the manual monthly incident-evidence deletion procedure and automated result publication/correction workflows during operations.
 
 ## 9. Suggested delivery sequence
 
