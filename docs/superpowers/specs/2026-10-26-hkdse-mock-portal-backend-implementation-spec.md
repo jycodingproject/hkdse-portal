@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-26  
 **Status:** Draft for implementation planning  
-**Decision baseline:** Product and system rules confirmed in conversations on 2026-10-26, 2026-10-27, and 2026-10-29
+**Decision baseline:** Product and system rules confirmed in conversations on 2026-10-26 through 2026-10-30
 **Scope:** First production backend for the HKDSE mock-exam portal
 
 This specification translates the confirmed product decisions into a provider-neutral backend design. It does not authorize production deployment or select payment, email, or legal/compliance providers. Items labelled **Open before implementation** must be decided before the relevant feature is coded.
@@ -109,6 +109,7 @@ Keep authentication PII in the authentication provider rather than copying email
 - `id`, administrator, source file reference, content hash, source schema version, converter version, status, validation report, created draft/paper version, and timestamps.
 - The content hash is provenance metadata, not a deduplication key. Every upload creates a distinct import and draft, even when the file is identical.
 - A failed schema validation or transformation sample check cannot create a publishable partial paper.
+- Original source JSON, non-reconstructable paper assets, and import/conversion records are retained indefinitely in the primary Supabase Storage/database service. No independent file backup is planned; the owner accepts that deletion or corruption of a Storage object may make that file unrecoverable.
 
 **`taxonomy_imports`**
 
@@ -194,7 +195,8 @@ Keep authentication PII in the authentication provider rather than copying email
 
 - Student, affected registration/attempt, submitted time, evidence references, status, decision, reason, administrator, and remedy.
 - Reject submissions more than seven days after the common sitting end time.
-- Evidence files are private, access-controlled, and retained only according to the reviewed retention policy.
+- Evidence files are private and access-controlled. The retention target is 90 days after case closure unless an appeal or legal hold is active. The administrator manually checks and deletes expired evidence monthly, so actual retention may extend to approximately 120 days. Retain only the decision/audit summary after evidence deletion. This retention policy remains subject to Hong Kong privacy/legal review.
+- Incident evidence is not independently backed up. Supabase database backups/PITR do not include Storage file objects.
 
 **`vouchers`**
 
@@ -212,8 +214,16 @@ Keep authentication PII in the authentication provider rather than copying email
 **`notification_outbox`**
 
 - Event type, recipient profile, channel, payload template/version, delivery state, attempts, and provider response metadata.
-- Email is the formal notification channel. If Telegram is linked, send an additional reminder.
+- Send formal email for account security, payment outcome, registration/cancellation, sitting changes, result publication, and incident decisions/remedies. Minimize email content; require portal sign-in for sensitive details.
+- Telegram is optional, requires explicit consent, and can be unlinked/disabled at any time without affecting the account or email notices. Send only non-sensitive reminders; never send scores, answers, payment details, or incident content.
+- Create a minimal in-portal notification center for critical payment, registration, sitting-change, result, and incident/remedy events.
+- Retry failed email delivery with exponential backoff for up to 72 hours, then mark undelivered and alert the administrator. Preserve the in-portal notification; never present a failed email as delivered.
 - Business transactions must commit independently from notification delivery. Failed notices remain visible and retryable.
+
+**`in_app_notifications`**
+
+- Persist critical payment, registration/cancellation, sitting-change, result, and incident/remedy notifications for the student's portal notification center.
+- Retain notification copies for 90 days, independently of the retention period for the underlying business records.
 
 **`audit_log`**
 
@@ -350,6 +360,8 @@ Required scheduled or retryable jobs:
 - Find stale checkout orders, pending incident cases, and incomplete cancellation batches.
 - Recompute affected results after an approved invalid-question decision.
 
+Incident evidence cleanup is a manual monthly administrator task; do not build a dedicated automatic lifecycle scheduler for it in the first release. Record evidence case closure date and deletion completion in the case/audit record.
+
 Monitor at minimum:
 
 - Answer-save success/error rates, latency, and stale client revisions.
@@ -357,9 +369,12 @@ Monitor at minimum:
 - Payment webhook verification failures and paid-order reconciliation.
 - Result publication and rescore job status.
 - Notification backlog and repeated delivery failures.
+- Notification-center retention expiry and email retry/undelivered state.
 - Admin actions, RLS denials, and unusual OTP/booking rates.
 
-Production backups and a tested restore procedure are required. The recovery objectives are RPO no greater than 5 minutes and RTO no greater than 4 hours; validate them with a restore exercise before launch. Confirm the selected Supabase plan's backup/recovery capabilities and cost before implementation.
+Production database backups and a tested restore procedure are required. RPO no greater than 5 minutes and RTO no greater than 4 hours have been discussed as objectives, but the production backup/PITR plan, PITR retention window, RTO launch gate, and affordability have not been approved. The owner has deferred these decisions; do not treat either objective as an approved requirement or guaranteed until the plan is selected and restoration is rehearsed.
+
+Supabase database backups/PITR do not include Storage object bytes ([Supabase backup documentation](https://supabase.com/docs/guides/platform/backups)). The current file-recovery decision is to use Supabase Storage only, with no independent object backup; the owner accepts that deleted or corrupted original paper JSON/images may be unrecoverable. If this risk changes, select a managed external backup service before production.
 
 ## 7. Verification plan
 
@@ -405,8 +420,9 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 
 ### Reliability and operations gates
 
-1. Confirm backup retention and restore process against the selected service plan, and demonstrate RPO <= 5 minutes and RTO <= 4 hours in a restore exercise.
-2. Verify automated result publication and the administrator's preview/confirmation process for corrected results.
+1. Select the production database recovery approach and PITR retention window; decide whether to retain RPO <= 5 minutes and establish the RTO launch gate. Validate final service capabilities and cost.
+2. If a recovery objective is adopted, demonstrate it in a restore exercise; Supabase PITR restore temporarily makes the project unavailable and does not guarantee a specific RTO.
+3. Verify the manual monthly incident-evidence deletion procedure and automated result publication/correction workflows.
 
 ## 9. Suggested delivery sequence
 
@@ -418,6 +434,6 @@ Before claiming support for 500 concurrent candidates, run a production-like tes
 6. **Operations:** incidents, admin audit, platform-cancellation preview/apply, notifications, account deletion.
 7. **Hardening:** load tests, failure recovery, backups/restore, privacy review, production deployment rehearsal.
 
-Do not connect a live payment provider, send real notifications, or deploy production migrations until the provider and legal gates are closed.
+Do not connect a live payment provider, send real notifications, or deploy production migrations until the provider and legal gates are closed and the database recovery plan is approved.
 
 AI question generation and topic labeling run outside the portal. Choosing the external authoring tool/provider is a separate content workflow decision, not a portal backend integration gate.
